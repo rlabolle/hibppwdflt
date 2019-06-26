@@ -1,0 +1,28 @@
+[package]
+name = "hibppwdflt"
+version = "0.1.0"
+authors = ["Romain Labolle <romain@labolle.eu>"]
+publish = false
+
+[package.metadata.winres]
+FileDescription = "Password Filter Module to exclude leaked passwords"
+ProductName = "HIBP Password Filter"
+ProductVersion = "0.1.0"
+OriginalFilename = "hibppwdflt.dll"
+LegalCopyright = "Copyright © 2019"
+
+[build-dependencies]
+winres = "0.1"
+
+[dependencies]
+winapi = { version = "0.3.7", features = ["ntdef"] }
+md4 = "0.8.0"
+winreg = "0.6.0"
+
+[lib]
+crate-type = ["cdylib"]
+
+[profile.release]
+lto = true
+
+
