@@ -1,0 +1,60 @@
+on:
+  push:
+    tags:
+    - 'v*'
+
+name: Upload Release Asset
+
+jobs:
+  release:
+    name: Release
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v2
+
+      - uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+
+      - name: Get the version
+        id: get_version
+        run: echo ::set-output name=VERSION::${GITHUB_REF/refs\/tags\//}
+        shell: bash
+
+      - name: Release build
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --release --all-features
+
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ steps.get_version.outputs.VERSION }}
+          release_name: Release ${{ steps.get_version.outputs.VERSION }}
+          draft: false
+          prerelease: false
+
+      - name: Prepare Release Assets
+        id: prepare-release-assets
+        run: |
+          cd target/release
+          strip hibppwdflt.dll
+          7z a ../../hibppwdflt-${{ steps.get_version.outputs.VERSION }}.zip hibppwdflt.dll
+          cd -
+
+      - name: Upload Release Asset
+        id: upload-release-asset 
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./hibppwdflt-${{ steps.get_version.outputs.VERSION }}.zip
+          asset_name: hibppwdflt-${{ steps.get_version.outputs.VERSION }}.zip
+          asset_content_type: application/zip
