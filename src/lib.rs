@@ -26,7 +26,7 @@ pub extern "stdcall" fn PasswordFilter(
     let pwd = password.to_bytes();
     let result = password_filter(pwd, set_operation != 0);
 
-    return result as BOOLEAN;
+    result as BOOLEAN
 }
 
 fn password_filter(password: &[u8], set_operation: bool) -> bool {

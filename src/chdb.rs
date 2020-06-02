@@ -25,13 +25,13 @@ impl CompactHashDB {
             0 => {
                 start = 0;
             }
-            0xFFFFFF => {
+            0x00FF_FFFF => {
                 self.dbfile.seek(SeekFrom::Start(0))?;
             }
             _ => (),
         }
         let end = self.read_le_u32()?;
-        return Ok((start, end));
+        Ok((start, end))
     }
 
     pub fn find_hash(&mut self, hash: &[u8]) -> io::Result<bool> {
@@ -47,6 +47,6 @@ impl CompactHashDB {
                 return Ok(true);
             }
         }
-        return Ok(false);
+        Ok(false)
     }
 }
