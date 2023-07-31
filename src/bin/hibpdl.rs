@@ -1,32 +1,163 @@
-use backoff::future::retry;
-use backoff::ExponentialBackoff;
+use backoff::{future::retry_notify, ExponentialBackoffBuilder};
+use chrono::{TimeZone, Utc};
+use clap::Parser;
 use futures::{stream, Stream, StreamExt};
 use hex::FromHex;
 use indicatif::{ProgressBar, ProgressStyle};
-use reqwest::Client;
+use reqwest::{header, Client};
+use std::error::Error;
+use std::fmt;
+use std::fs::File;
+use std::io::{self, Read, Seek, SeekFrom, Write};
+use std::path::Path;
+use tokio::time::Duration;
 
-use chrono::{TimeZone, Utc};
-use reqwest::header::IF_MODIFIED_SINCE;
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
+struct Args {
+    /// Old chdb to update
+    #[arg(short, long)]
+    from: Option<String>,
 
-const PARALLEL_REQUESTS: usize = 20 * 8;
+    /// Output chdb
+    #[arg(short, long)]
+    output: String,
 
-async fn download_range(client: Client, prefix: u32) -> (u32, String) {
-    retry(ExponentialBackoff::default(), || async {
-        let url = format!(
-            "https://api.pwnedpasswords.com/range/{:05X}?mode=ntlm",
-            prefix.clone()
-        );
-        let resp = client.get(url).send().await.map_err(|e| {
-            eprintln!("Got a reqwest::Error: {}", e);
-            e
-        })?;
-        let text = resp.text().await.map_err(|e| {
-            eprintln!("Got a reqwest::Error: {}", e);
-            e
-        })?;
-        Ok((prefix, text))
-    })
+    /// Number of parallel download buffers
+    #[arg(short, long, default_value_t = 160)]
+    parallel: usize,
+}
+
+pub struct CompactHashDB {
+    dbfile: File,
+}
+
+impl CompactHashDB {
+    pub fn open<P: AsRef<Path>>(path: P) -> io::Result<CompactHashDB> {
+        let dbfile = File::open(path)?;
+        Ok(CompactHashDB { dbfile })
+    }
+
+    fn read_le_u32(&mut self) -> io::Result<u32> {
+        let mut buf = [0; 4];
+        self.dbfile.read_exact(&mut buf)?;
+        Ok(u32::from_le_bytes(buf))
+    }
+
+    fn read_le_i64(&mut self) -> io::Result<i64> {
+        let mut buf = [0; 8];
+        self.dbfile.read_exact(&mut buf)?;
+        Ok(i64::from_le_bytes(buf))
+    }
+
+    pub fn get_timestamp(&mut self) -> io::Result<i64> {
+        self.dbfile.seek(SeekFrom::Start(0))?;
+        let ts_pos = self.read_le_u32()?;
+        self.dbfile
+            .seek(SeekFrom::Start((1 << 24) * 4 + (ts_pos as u64) * 13))?;
+        self.read_le_i64()
+    }
+
+    fn get_bucket_indexes(&mut self, prefix: u32) -> io::Result<(u32, u32)> {
+        self.dbfile.seek(SeekFrom::Start((prefix as u64) * 4))?;
+        let mut start = self.read_le_u32()?;
+        match prefix {
+            0 => {
+                start = 0;
+            }
+            0x00FF_FFFF => {
+                self.dbfile.seek(SeekFrom::Start(0))?;
+            }
+            _ => (),
+        }
+        let end = self.read_le_u32()?;
+        Ok((start, end))
+    }
+
+    pub fn get_hashs_suffix(&mut self, prefix: u32) -> io::Result<Vec<[u8; 13]>> {
+        let (start, end) = self.get_bucket_indexes(prefix)?;
+        self.dbfile
+            .seek(SeekFrom::Start((1 << 24) * 4 + (start as u64) * 13))?;
+        let hashs: io::Result<Vec<[u8; 13]>> = (start..end)
+            .map(|_n| {
+                let mut buf = [0; 13];
+                self.dbfile.read_exact(&mut buf)?;
+                Ok(buf)
+            })
+            .collect();
+        hashs
+    }
+}
+
+#[derive(Debug)]
+enum DownloadResult {
+    Cached,
+    Text(String),
+}
+
+#[derive(Debug)]
+enum DownloadError {
+    StatusCode(u16),
+    ReqwestError(reqwest::Error),
+}
+
+impl fmt::Display for DownloadError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            DownloadError::StatusCode(code) => write!(f, "Invalid status code: {}", code),
+            DownloadError::ReqwestError(ref e) => write!(f, "Reqwest error: {}", e),
+        }
+    }
+}
+
+impl Error for DownloadError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match *self {
+            DownloadError::StatusCode(_) => None,
+            DownloadError::ReqwestError(ref e) => Some(e),
+        }
+    }
+}
+
+async fn download_range(client: Client, prefix: u32) -> (u32, DownloadResult) {
+    let retry_strategy = ExponentialBackoffBuilder::new()
+        .with_initial_interval(Duration::from_millis(50)) // 1st retry in 50ms
+        .with_multiplier(10.0) // 10x the delay after 1st retry (500ms)
+        .with_randomization_factor(0.5) // with a randomness of +/-50% (250-750ms)
+        .with_max_interval(Duration::from_secs(3)) // but never delay more than 3s
+        .with_max_elapsed_time(Some(Duration::from_secs(20))) // or 20s total
+        .build();
+
+    retry_notify(
+        retry_strategy,
+        || async {
+            let url = format!(
+                "https://api.pwnedpasswords.com/range/{:05X}?mode=ntlm",
+                prefix.clone()
+            );
+            let resp = client
+                .get(url)
+                .send()
+                .await
+                .map_err(DownloadError::ReqwestError)?
+                .error_for_status()
+                .map_err(DownloadError::ReqwestError)?;
+            match resp.status().as_u16() {
+                200 => {
+                    let text = resp.text().await.map_err(DownloadError::ReqwestError)?;
+                    Ok((prefix, DownloadResult::Text(text)))
+                }
+                304 => Ok((prefix, DownloadResult::Cached)),
+                code => Err(DownloadError::StatusCode(code))?,
+            }
+        },
+        |e, _dur| eprintln!("Temporary error (retrying): {}", e),
+    )
     .await
+    .map_err(|e| {
+        eprintln!("Permanent error: {}", e);
+        e
+    })
     .unwrap()
 }
 
@@ -64,20 +195,55 @@ async fn text_to_hash_stream(prefix: u32, text: String) -> impl Stream<Item = (u
     )
 }
 
-async fn download_hash_stream(parallel: usize) -> impl Stream<Item = (u32, [u8; 13])> {
-    let client = Client::new();
+async fn chdb_to_hash_stream<P: AsRef<Path>>(
+    prefix: u32,
+    path: P,
+) -> impl Stream<Item = (u32, [u8; 13])> {
+    let mut chdb = CompactHashDB::open(&path).unwrap();
+    stream::iter(0x0..=0xF)
+        .map(move |p| {
+            let pfx = prefix * 16 + p;
+            stream::iter(chdb.get_hashs_suffix(pfx).unwrap()).map(move |h| (pfx, h))
+        })
+        .flatten()
+}
+
+async fn download_hash_stream(
+    parallel: usize,
+    from: Option<String>,
+) -> impl Stream<Item = (u32, [u8; 13])> {
+    let mut headers = header::HeaderMap::new();
+    if let Some(path) = &from {
+        let ts = CompactHashDB::open(path).unwrap().get_timestamp().unwrap();
+        headers.insert(
+            header::IF_MODIFIED_SINCE,
+            header::HeaderValue::from_str(Utc.timestamp_nanos(ts).to_rfc2822().as_str()).unwrap(),
+        );
+    };
+    let client = reqwest::Client::builder()
+        .default_headers(headers)
+        .build()
+        .unwrap();
     stream::iter(0x00000..=0xFFFFF)
         .map(move |prefix| {
             let client = client.clone();
             tokio::spawn(download_range(client, prefix))
         })
         .buffered(parallel)
-        .filter_map(|res| async {
-            match res {
-                Ok((prefix, text)) => Some(text_to_hash_stream(prefix, text).await),
-                Err(e) => {
-                    eprintln!("Got a tokio::JoinError: {}", e);
-                    None
+        .filter_map(move |res| {
+            let p = from.clone();
+            async move {
+                match res {
+                    Ok((prefix, DownloadResult::Text(text))) => {
+                        Some(text_to_hash_stream(prefix, text).await.boxed())
+                    }
+                    Ok((prefix, DownloadResult::Cached)) => {
+                        Some(chdb_to_hash_stream(prefix, p.unwrap()).await.boxed())
+                    }
+                    Err(e) => {
+                        eprintln!("Got a tokio::JoinError: {}", e);
+                        None
+                    }
                 }
             }
         })
@@ -86,6 +252,10 @@ async fn download_hash_stream(parallel: usize) -> impl Stream<Item = (u32, [u8; 
 
 #[tokio::main]
 async fn main() {
+    let args = Args::parse();
+    let mut outdb = File::create(args.output).unwrap();
+    let starttime = Utc::now().timestamp_nanos();
+    outdb.seek(SeekFrom::Start((1 << 24) * 4)).unwrap();
     let pb = ProgressBar::new(0x1000000);
     pb.set_style(ProgressStyle::with_template("{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {percent}% (ETA: {eta_precise})")
         .unwrap()
@@ -95,7 +265,7 @@ async fn main() {
     let mut count = 0u32;
     let mut idx = Vec::with_capacity(0x1000000);
     idx.push(0);
-    let hashs = download_hash_stream(PARALLEL_REQUESTS).await;
+    let hashs = download_hash_stream(args.parallel, args.from).await;
     hashs
         .for_each(|(prefix, suffix)| {
             while prefix != lastprefix {
@@ -105,7 +275,7 @@ async fn main() {
                     pb.set_position(lastprefix.into());
                 }
             }
-            let _hash = format!("{:06X}{}", prefix, hex::encode_upper(suffix));
+            outdb.write_all(&suffix).unwrap();
             count += 1;
             futures::future::ready(())
         })
@@ -116,8 +286,12 @@ async fn main() {
         pb.set_position(lastprefix.into());
     }
     idx[0] = count;
+    outdb.write_all(&starttime.to_le_bytes()).unwrap();
+    outdb.seek(SeekFrom::Start(0)).unwrap();
+    for i in &idx {
+        outdb.write_all(&i.to_le_bytes()).unwrap();
+    }
     pb.finish_with_message("done");
-    println!("{:?}", idx.len());
 }
 
 #[tokio::test]
@@ -125,7 +299,7 @@ async fn test_downlaod_range() {
     let client = Client::new();
     let prefix = 0x8846F;
     let tail = "7EAEE8FB117AD06BDD830B7586C";
-    let (pfx, txt) = download_range(client, prefix).await;
+    let (pfx, DownloadResult::Text(txt)) = download_range(client, prefix).await else { panic!("no cache") };
     assert_eq!(prefix, pfx);
     assert!(txt.contains(tail));
 }
@@ -195,7 +369,7 @@ async fn test_text_to_hash_stream() {
 
 #[tokio::test]
 async fn test_download_hash_stream() {
-    let stream = download_hash_stream(1).await;
+    let stream = download_hash_stream(1, None).await;
     let result = stream.take(10).collect::<Vec<_>>().await;
     assert_eq!(
         result,
