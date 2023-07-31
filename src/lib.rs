@@ -1,19 +1,14 @@
 #![cfg(windows)]
 
-extern crate md4;
-extern crate winapi;
-extern crate winreg;
-
 mod chdb;
 mod config;
 mod winctype;
 
 use md4::{Digest, Md4};
-use winapi::shared::ntdef::{BOOLEAN, PUNICODE_STRING};
 
 use chdb::CompactHashDB;
 use config::RegConfig;
-use winctype::PunicodeExt;
+use winctype::{PunicodeExt, BOOLEAN, PUNICODE_STRING};
 
 #[no_mangle]
 #[allow(non_snake_case, unused_variables)]

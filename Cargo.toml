@@ -17,20 +17,19 @@ LegalCopyright = "Copyright © 2022"
 winres = "0.1"
 
 [dependencies]
-winapi = { version = "0.3.9", features = ["ntdef"] }
-md4 = "0.10.1"
+md4 = "0.10"
 
 futures = "0.3"
 reqwest = "0.11"
 backoff = { version = "0.4", features = ["tokio"] }
-tokio = { version = "1.27", features = ["full"] }
+tokio = { version = "1.29", features = ["full"] }
 hex = "0.4"
 indicatif = "0.17"
 chrono = "0.4"
 clap = { version = "4.3.19", features = ["derive"] }
 
 [target.'cfg(windows)'.dependencies]
-winreg = "0.10.1"
+winreg = "0.50"
 
 [lib]
 crate-type = ["cdylib"]

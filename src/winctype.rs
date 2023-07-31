@@ -1,14 +1,13 @@
+#![allow(non_snake_case, non_camel_case_types)]
 use std::slice;
-use winapi::shared::ntdef::PUNICODE_STRING;
 
-/*
 pub struct UNICODE_STRING {
     pub Length: u16,
     pub MaximumLength: u16,
     pub Buffer: *mut u16,
 }
-type PUNICODE_STRING = *mut UNICODE_STRING;
-*/
+pub type PUNICODE_STRING = *mut UNICODE_STRING;
+pub type BOOLEAN = u8;
 
 pub trait PunicodeExt {
     fn to_bytes<'a>(self) -> &'a [u8];
