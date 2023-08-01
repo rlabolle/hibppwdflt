@@ -292,7 +292,9 @@ async fn test_downlaod_range() {
     let client = Client::new();
     let prefix = 0x8846F;
     let tail = "7EAEE8FB117AD06BDD830B7586C";
-    let (pfx, DownloadResult::Text(txt)) = download_range(client, prefix).await else { panic!("no cache") };
+    let (pfx, DownloadResult::Text(txt)) = download_range(client, prefix).await else {
+        panic!("no cache")
+    };
     assert_eq!(prefix, pfx);
     assert!(txt.contains(tail));
 }
