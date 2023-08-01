@@ -1,4 +1,4 @@
-use backoff::{future::retry_notify, ExponentialBackoffBuilder};
+use backoff::{future::retry_notify, ExponentialBackoff};
 use chrono::{TimeZone, Utc};
 use clap::Parser;
 use futures::{stream, Stream, StreamExt};
@@ -10,7 +10,6 @@ use std::fmt;
 use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::Path;
-use tokio::time::Duration;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -120,13 +119,7 @@ impl Error for DownloadError {
 }
 
 async fn download_range(client: Client, prefix: u32) -> (u32, DownloadResult) {
-    let retry_strategy = ExponentialBackoffBuilder::new()
-        .with_initial_interval(Duration::from_millis(50)) // 1st retry in 50ms
-        .with_multiplier(10.0) // 10x the delay after 1st retry (500ms)
-        .with_randomization_factor(0.5) // with a randomness of +/-50% (250-750ms)
-        .with_max_interval(Duration::from_secs(3)) // but never delay more than 3s
-        .with_max_elapsed_time(Some(Duration::from_secs(20))) // or 20s total
-        .build();
+    let retry_strategy = ExponentialBackoff::default();
 
     retry_notify(
         retry_strategy,
