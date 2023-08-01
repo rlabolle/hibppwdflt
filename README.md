@@ -12,12 +12,14 @@ cargo build --release
 
 ## Generating the compact hash database
 
-* Download the *NTLM* (ordered by hash) list from the [Have I been Pwned website](https://haveibeenpwned.com/Passwords)
-* Extract the list and convert it with `convertdb.py`  python 3 script:
+* To download the last version of the hashes and create the db:
+```sh
+hibpdl.exe -o hibp.chdb
 ```
-python3 ./convertdb.py pwned-passwords-ntlm-ordered-by-hash-v4.txt hibp.chdb
+* To download a new version using a previous one as cache for unchanged passwords:
+```sh
+hibpdl.exe -f hibp_old.chdb -o hibp_new.chdb
 ```
-
 ## Installation
 
 * Copy `hibppwdflt.dll` file to `C:\Windows\System32\hibppwdflt.dll`
@@ -30,7 +32,7 @@ You can configure this password filter with the following registry subkey of `HK
 
 * `RejectOnError` (DWORD): set to 1 to reject passwords in case of IO errors (Default: `0`)
 * `CheckOnSet` (DWORD): check the password on "set password" operations usualy from an admin account (Default: `0`) 
- * `DBPath` (STRING): Database path (Default: `C:\Windows\System32\HIBPPwdFlt\hibp.chdb`)
+* `DBPath` (STRING): Database path (Default: `C:\Windows\System32\HIBPPwdFlt\hibp.chdb`)
 
 ## License
 
