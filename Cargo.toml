@@ -22,14 +22,15 @@ md4 = "0.10"
 futures = "0.3"
 reqwest = "0.11"
 backoff = { version = "0.4", features = ["tokio"] }
-tokio = { version = "1.29", features = ["full"] }
+tokio = { version = "1.32", features = ["full"] }
 hex = "0.4"
 indicatif = "0.17"
-chrono = "0.4"
-clap = { version = "4.3.19", features = ["derive"] }
+chrono = { version = "0.4.26", default-features = false, features = ["clock"] }
+clap = { version = "4.3.23", features = ["derive"] }
+serde = { version = ">= 1.0.126, <= 1.0.171", default-features = false }
 
 [target.'cfg(windows)'.dependencies]
-winreg = "0.50"
+winreg = "0.51"
 
 [lib]
 crate-type = ["cdylib"]
