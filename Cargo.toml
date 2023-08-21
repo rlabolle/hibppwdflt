@@ -1,6 +1,6 @@
 [package]
 name = "hibppwdflt"
-version = "0.1.2"
+version = "0.1.3"
 authors = ["Romain Labolle <romain@labolle.eu>"]
 license = "MIT/Apache-2.0"
 publish = false
@@ -9,7 +9,7 @@ edition = "2021"
 [package.metadata.winres]
 FileDescription = "Password Filter Module to exclude leaked passwords"
 ProductName = "HIBP Password Filter"
-ProductVersion = "0.1.2"
+ProductVersion = "0.1.3"
 OriginalFilename = "hibppwdflt.dll"
 LegalCopyright = "Copyright © 2023"
 
