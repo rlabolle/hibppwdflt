@@ -38,7 +38,7 @@ fn password_filter(password: &[u8], set_operation: bool) -> bool {
     }
 
     match CompactHashDB::open(db_path) {
-        Ok(mut db) => match db.find_hash(&Md4::digest(password)) {
+        Ok(mut db) => match db.find_hash(&Md4::digest(password).into()) {
             Ok(b) => !b,
             Err(_) => on_error,
         },

@@ -34,7 +34,7 @@ impl CompactHashDB {
         Ok((start, end))
     }
 
-    pub fn find_hash(&mut self, hash: &[u8]) -> io::Result<bool> {
+    pub fn find_hash(&mut self, hash: &[u8; 16]) -> io::Result<bool> {
         let prefix = u32::from_le_bytes([hash[2], hash[1], hash[0], 0]);
         let suffix = &hash[3..];
         let (start, end) = self.get_bucket_indexes(prefix)?;
