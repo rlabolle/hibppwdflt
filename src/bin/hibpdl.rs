@@ -254,6 +254,7 @@ async fn main() {
     pb.set_style(ProgressStyle::with_template("{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {percent}% (ETA: {eta_precise})")
         .unwrap()
         .progress_chars("#>-"));
+    pb.enable_steady_tick(Duration::from_millis(100));
     pb.set_position(0);
     let mut lastprefix = 0u32;
     let mut count = 0u32;
@@ -265,9 +266,7 @@ async fn main() {
             while prefix != lastprefix {
                 idx.push(count);
                 lastprefix += 1;
-                if lastprefix % 0xFF == 0 {
-                    pb.set_position(lastprefix.into());
-                }
+                pb.set_position(lastprefix.into());
             }
             outdb.write_all(&suffix).unwrap();
             count += 1;
