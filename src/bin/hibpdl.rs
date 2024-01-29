@@ -10,6 +10,7 @@ use std::fmt;
 use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::Path;
+use std::time::Duration;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -247,7 +248,7 @@ async fn download_hash_stream(
 async fn main() {
     let args = Args::parse();
     let mut outdb = File::create(args.output).unwrap();
-    let starttime = Utc::now().timestamp_nanos();
+    let starttime = Utc::now().timestamp_nanos_opt().unwrap_or(0);
     outdb.seek(SeekFrom::Start((1 << 24) * 4)).unwrap();
     let pb = ProgressBar::new(0x1000000);
     pb.set_style(ProgressStyle::with_template("{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {percent}% (ETA: {eta_precise})")
